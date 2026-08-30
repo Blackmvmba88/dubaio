@@ -169,7 +169,7 @@ python sim/compare_architectures.py --config 1mw_peak
 python -m unittest discover -s tests -v
 ```
 
-Tests now cover thermal-ledger closure, zero grid-loss dispatch, rated-power bounds, exact simulation duration, fixed ratio consistency, progressive load removal, backlash deadband behavior and the explicit BMSC/reference efficiency comparison.
+Tests now cover thermal-ledger closure, exact DNI sunrise/sunset boundaries, zero grid-loss dispatch, rated-power bounds, exact simulation duration, fixed ratio consistency, progressive load removal, backlash deadband behavior and the explicit BMSC/reference efficiency comparison.
 
 ## Safety / engineering scope
 
