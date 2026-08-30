@@ -30,7 +30,7 @@ The model always computes available **power first**. Torque and angular velocity
 ### 1.1 Optical capture
 
 \[
-P_{opt}(t)=DNI(t) A_{aperture}\eta_{opt}
+P_{opt}(t)=DNI(t)A_{aperture}\eta_{opt}
 \]
 
 ### 1.2 Receiver useful power
@@ -135,25 +135,54 @@ At 1.8 RPM (`0.18850 rad/s`) this corresponds to approximately:
 \tau_m\approx6.25\,MN\cdot m
 \]
 
-## 5. Peak power vs continuous power
+## 5. Reconciled 1 MW sizing
 
-A critical distinction:
+The v0.2 baseline uses:
 
-- `1 MW peak` means the plant can reach 1 MW under design irradiance.
-- `1 MW continuous` means the solar field must harvest enough daily energy to supply 24 MWh_e/day after all losses and storage requirements.
+- `DNI_peak = 950 W/m²`
+- `eta_opt = 0.75`
+- effective receiver factor `eta_rec - f_loss = 0.88 - 0.05 = 0.83`
+- `eta_cycle = 0.35`
+- `eta_drive = 0.96^3 = 0.884736`
+- `eta_gen = 0.96`
 
-Using the repository's baseline toy profile:
+The complete aperture-to-electric peak efficiency is therefore:
 
-- DNI peak: `950 W/m^2`
-- daylight: 06:00–18:00
-- sinusoidal irradiance
-- optical efficiency: `0.75`
-- receiver effective factor: `0.88 - 0.05 = 0.83`
-- thermal-to-electrical target: approximately `0.32`
+\[
+\eta_{aperture\rightarrow e}=0.75\times0.83\times0.35\times0.884736\times0.96\approx0.2221
+\]
 
-A `4386 m^2` aperture is a reasonable order-of-magnitude **peak-power** case, but it does not provide enough daily energy for a flat 1 MW output over 24 h.
+The aperture required for approximately 1 MW electric at the design point is:
 
-Under the simplified sinusoidal profile, approximately `16,600 m^2` of aperture is required merely to close the idealized daily energy balance for 1 MW continuous output with the above receiver assumptions. Real deployment would require additional margin for weather, cosine losses, soiling, downtime, parasitic loads, thermal losses, dispatch reserve, and seasonal DNI variation.
+\[
+A_{1MW,peak}=\frac{1,000,000}{950\eta_{aperture\rightarrow e}}\approx5,688\,m^2
+\]
+
+The corresponding thermal-cycle input is approximately:
+
+\[
+P_{th,cycle}=\frac{1\,MW}{0.35\times0.884736\times0.96}\approx3.364\,MW_{th}
+\]
+
+### 5.1 Peak power is not 24-hour energy
+
+The idealized DNI profile used by the simulator is a sine wave from 06:00 to 18:00. Its equivalent full-sun duration at peak DNI is:
+
+\[
+t_{eq}=\frac{24}{\pi}\approx7.639\,h
+\]
+
+Therefore the `5,688 m²` peak case yields only about `7.64 MWh_e/day` before storage/parasitic corrections. It is correctly a **1 MW peak** case, not a 1 MW continuous case.
+
+To close an idealized `24 MWh_e/day` budget with the same efficiency chain requires approximately:
+
+\[
+A_{24MWh}\approx17,870\,m^2
+\]
+
+The repository rounds this exploratory case to `17,900 m²`.
+
+This is only a daily-energy closure. A true 1 MW continuous plant additionally requires a dispatch policy, sufficient thermal storage power and capacity, start/end state-of-charge closure across multiple days, weather/seasonal margins, parasitic loads, soiling, downtime, cosine losses and storage losses.
 
 ## 6. Safety architecture principles
 
@@ -170,3 +199,15 @@ A high-inertia or high-speed train should **not** be assumed safe merely because
 ## 7. CAD status
 
 Procedural CAD in `cad/` is visualization-only. The current simplified tooth geometry is not involute and must not be manufactured. Any industrial drivetrain requires standards-based gear design, fatigue analysis, overspeed containment, lubrication design, bearing sizing, shaft critical-speed analysis, and independent engineering review.
+
+## 8. Next physics gate (v0.3)
+
+Before sizing industrial hardware:
+
+1. model clutch slip and synchronization energy;
+2. account explicitly for unused prime-mover power when torque-limited;
+3. add rotational-energy accounting to the electrical dispatch balance;
+4. add torsional compliance, backlash and shaft modes;
+5. replace fractional receiver losses with temperature-dependent radiation/convection;
+6. run multi-day simulations until storage state of charge reaches a periodic steady cycle;
+7. compare BMSC against a conventional variable-speed generator + power-electronics architecture.
