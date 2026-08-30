@@ -69,35 +69,15 @@ E_old + E_receiver
     = E_new + E_cycle + E_storage_loss + E_rejected
 ```
 
-It supports:
-
-- multi-day simulations;
-- storage state-of-charge tracking;
-- thermal overflow/rejection;
-- cloud attenuation;
-- grid availability;
-- flat or variable electrical demand;
-- direct numerical balance-error reporting.
+It supports multi-day simulations, storage SOC, rejected thermal energy, cloud attenuation, grid availability, variable demand and direct balance-error reporting.
 
 ### Fast clock — shaft / torsion / load loss
 
-`sim/torsional_bench.py` models:
-
-- master inertia;
-- generator/flywheel inertia reflected through the fixed ratio;
-- shaft torsional stiffness;
-- torsional damping;
-- backlash deadband;
-- progressive clutch/load admission;
-- grid loss;
-- prime-mover unloading;
-- overspeed braking envelope.
+`sim/torsional_bench.py` models master inertia, reflected generator/flywheel inertia, shaft stiffness, damping, backlash deadband, progressive load admission, grid loss, prime-mover unloading and an overspeed-brake envelope.
 
 The fast and slow models are intentionally separate. Multi-day solar dispatch should not require a millisecond timestep, and torsional transients should not be hidden inside a one-minute timestep.
 
 ## Default v0.3 disturbance sequence
-
-The scenario runner injects repeatable faults rather than ideal sunshine only:
 
 ```text
 DAY 1   nominal cycle
@@ -105,6 +85,26 @@ DAY 2   10:00-13:00 cloud factor = 0.25
         14:00-14:30 grid unavailable
 DAY 3   recovery / storage-closure observation
 ```
+
+## Honest reference architecture
+
+BMSC is now compared against an idealized variable-speed generator + power-electronics path using the same optical/thermal assumptions.
+
+Current conceptual result:
+
+- BMSC shaft-to-grid path: **~84.93%**
+- reference shaft-to-grid path: **~92.21%**
+- BMSC analytical aperture @ 1 MW peak: **~5,688 m²**
+- reference analytical aperture @ 1 MW peak: **~5,240 m²**
+- current BMSC aperture penalty: **~8.56%**
+
+That penalty is intentional research pressure. BMSC must earn it through measured advantages such as passive fault sequencing, maintainability, harsh-environment resilience, graceful degradation or useful direct mechanical outputs. Mechanical complexity is not assumed to be superior merely because it is mechanical.
+
+## Low-energy HIL gate
+
+`docs/hil_bench.md` defines the first physical validation path **without concentrated solar heat, steam, molten salt or industrial pressure**.
+
+The bench emulates the master shaft with a low-energy drive and measures spin-up, hysteresis, torsion, cloud-equivalent torque dips, loss of load, passive safe-state behavior and sequencing faults.
 
 ## Repository layout
 
@@ -115,7 +115,9 @@ dubaio/
 ├── docs/
 │   ├── specification.md
 │   ├── state_machine.md
-│   └── v03_design.md
+│   ├── v03_design.md
+│   ├── reference_comparison.md
+│   └── hil_bench.md
 ├── sim/
 │   ├── configs.py
 │   ├── engine.py
@@ -123,27 +125,23 @@ dubaio/
 │   ├── v03_configs.py
 │   ├── v03_dispatch.py
 │   ├── torsional_bench.py
-│   └── run_v03_scenarios.py
+│   ├── run_v03_scenarios.py
+│   ├── reference_baseline.py
+│   └── compare_architectures.py
 ├── cad/
 │   └── procedural_gears.py
 ├── tests/
 │   ├── test_physics.py
-│   └── test_v03.py
+│   ├── test_v03.py
+│   └── test_reference_baseline.py
 └── .github/workflows/
     └── tests.yml
-```
-
-## Run v0.2 baseline
-
-```bash
-python -m pip install -r requirements.txt
-python sim/run_day_cycle.py --config 1mw_peak
-python sim/run_day_cycle.py --config 1mw_daily_energy
 ```
 
 ## Run v0.3 multi-day dispatch
 
 ```bash
+python -m pip install -r requirements.txt
 python sim/run_v03_scenarios.py \
   --config 1mw_daily_energy \
   --mode dispatch \
@@ -159,24 +157,23 @@ python sim/run_v03_scenarios.py \
   --dt 0.01
 ```
 
+## Compare BMSC against the reference path
+
+```bash
+python sim/compare_architectures.py --config 1mw_peak
+```
+
 ## Run physics invariants
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-The new v0.3 tests require, among other things:
-
-- per-step thermal energy balance;
-- no electrical dispatch during a grid-loss command;
-- output power bounded by rating;
-- fixed drivetrain ratio consistency;
-- progressive load removal;
-- zero elastic torque inside a stationary backlash deadband.
+Tests now cover thermal-ledger closure, zero grid-loss dispatch, rated-power bounds, fixed ratio consistency, progressive load removal, backlash deadband behavior and the explicit BMSC/reference efficiency comparison.
 
 ## Current CI note
 
-The GitHub Actions workflow is valid YAML and is being triggered, but current GitHub runs are terminating before any job step is reported (`runner_id=0`, empty steps). Until GitHub provides an executable runner, CI status must **not** be interpreted as a physics-test result.
+The GitHub Actions workflow is valid YAML and is being triggered, but current GitHub runs terminate before any job step is reported (`runner_id=0`, empty steps). Until GitHub provides an executable runner, CI status must **not** be interpreted as a physics-test result.
 
 ## Safety / engineering scope
 
@@ -192,8 +189,8 @@ No gear geometry, pressure boundary, high-speed flywheel, receiver, clutch, shaf
 4. periodic multi-day SOC solver instead of fixed initial storage;
 5. parasitic electrical loads and cooling/pumping consumption;
 6. site-DNI input from weather data;
-7. comparison against a variable-speed generator + power-electronics reference architecture;
-8. low-energy HIL bench specification with measurable pass/fail criteria.
+7. quantified reliability/maintenance model for BMSC vs reference;
+8. machine-readable HIL acceptance thresholds and CSV validation report.
 
 ---
 
