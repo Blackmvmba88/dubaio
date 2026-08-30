@@ -1,28 +1,194 @@
 # BlackMamba Solar Clock (BMSC)
 
-> Mechanical solar-thermal engine, staged drivetrain, and mechanically sequenced control research.
+> Mechanical solar-thermal engine, fixed-ratio drivetrain, mechanically sequenced load control, and energy-conserving simulation research.
 
-This repository is the engineering workspace for **BMSC Physics**, a concept exploring solar-thermal energy capture, thermal buffering, low-speed/high-torque prime motion, staged mechanical transmission, rotational inertia, and fail-safe mechanical sequencing.
+The **BlackMamba Solar Clock** is an engineering research concept that explores a solar-thermal plant whose low-speed/high-torque prime motion is coupled to a continuously meshed speed-increasing drivetrain and a mechanically sequenced control layer.
 
 ## Current status
 
-**Phase:** concept validation / physics model
+**Phase:** `BMSC Physics v0.3` — analytical validation / split-timescale simulation.
 
-The immediate goal is to validate conservation of energy, drivetrain dynamics, hysteresis, and mechanical state sequencing before any high-temperature or high-pressure prototype is considered.
-
-## Safety and engineering scope
-
-Current models are analytical and simulated. CAD in this repository is for visualization unless explicitly marked otherwise. No geometry, material choice, pressure vessel, flywheel, or drivetrain component should be treated as manufacturing-ready without appropriate mechanical, thermal, fatigue, containment, and code review.
-
-## Project areas
-
-- `docs/` — technical specification and state-machine notes
-- `sim/` — energy and rotational-dynamics simulator
-- `cad/` — conceptual/procedural visualization models
-- `tests/` — physics invariants and regression checks
+The project is deliberately proving energy accounting and dynamic behavior before treating any receiver, pressure system, clutch, shaft, gear or flywheel as build-ready.
 
 ## Core principle
 
-**The clock encodes sequence; physics authorizes transition.**
+> **The clock encodes sequence; physics authorizes transition; the ledger proves whether the energy existed.**
 
-BLACKMAMBA RECORDS / Iyari Cancino Gómez
+## Architecture
+
+```text
+                        SLOW PHYSICS
+DNI(t) -> optics -> receiver -> thermal buffer -> cycle -> shaft power
+                              |                         |
+                              +------ energy ledger ----+
+                                                        |
+                                                        v
+                        FAST PHYSICS              MASTER SHAFT
+                                                  low RPM / high torque
+                                                        |
+                                                        v
+                                              fixed drivetrain 1000:1
+                                                        |
+                                             compliant torsional path
+                                                        |
+                                               staged LOAD admission
+                                                        |
+                                                        v
+                                                    generator
+                                                        |
+                                                        v
+                                                      grid
+```
+
+## What v0.2 established
+
+- Solar/thermal **power is computed first**; torque and RPM are not independently scaled with irradiance.
+- Master-shaft motion follows rotational dynamics rather than a direct solar-to-RPM mapping.
+- Peak-power aperture sizing is separated from daily-energy sizing.
+- A continuously meshed drivetrain replaces the unphysical idea of instantaneously inserting huge reflected inertias as gear stages appear.
+- Mechanical stages are interpreted as **load-admission states**, not magical RPM creation.
+
+## Reconciled 1 MW baseline
+
+With the current toy assumptions (`DNI=950 W/m²`, optical efficiency `0.75`, effective receiver factor `0.83`, thermal cycle `0.35`, drivetrain `0.96³`, generator `0.96`):
+
+- **~5,688 m² aperture** closes the analytical **1 MW peak** equation.
+- Under the repeatable 06:00–18:00 sinusoidal DNI profile, that aperture represents about **7.64 MWh_e/day** before storage/parasitic corrections.
+- **~17,900 m² aperture** closes an idealized **24 MWh_e/day** incoming-energy budget before storage losses, weather, soiling, parasitics and reserve margin.
+
+The daily-energy case is therefore a **budget study**, not a claim of proven 1 MW 24/7 dispatch.
+
+## What v0.3 adds
+
+### Slow clock — energy / storage / dispatch
+
+`sim/v03_dispatch.py` closes the thermal ledger every step:
+
+```text
+E_old + E_receiver
+    = E_new + E_cycle + E_storage_loss + E_rejected
+```
+
+It supports multi-day simulations, storage SOC, rejected thermal energy, cloud attenuation, grid availability, variable demand and direct balance-error reporting.
+
+### Fast clock — shaft / torsion / load loss
+
+`sim/torsional_bench.py` models master inertia, reflected generator/flywheel inertia, shaft stiffness, damping, backlash deadband, progressive load admission, grid loss, prime-mover unloading and an overspeed-brake envelope.
+
+The fast and slow models are intentionally separate. Multi-day solar dispatch should not require a millisecond timestep, and torsional transients should not be hidden inside a one-minute timestep.
+
+## Default v0.3 disturbance sequence
+
+```text
+DAY 1   nominal cycle
+DAY 2   10:00-13:00 cloud factor = 0.25
+        14:00-14:30 grid unavailable
+DAY 3   recovery / storage-closure observation
+```
+
+## Honest reference architecture
+
+BMSC is now compared against an idealized variable-speed generator + power-electronics path using the same optical/thermal assumptions.
+
+Current conceptual result:
+
+- BMSC shaft-to-grid path: **~84.93%**
+- reference shaft-to-grid path: **~92.21%**
+- BMSC analytical aperture @ 1 MW peak: **~5,688 m²**
+- reference analytical aperture @ 1 MW peak: **~5,240 m²**
+- current BMSC aperture penalty: **~8.56%**
+
+That penalty is intentional research pressure. BMSC must earn it through measured advantages such as passive fault sequencing, maintainability, harsh-environment resilience, graceful degradation or useful direct mechanical outputs. Mechanical complexity is not assumed to be superior merely because it is mechanical.
+
+## Low-energy HIL gate
+
+`docs/hil_bench.md` defines the first physical validation path **without concentrated solar heat, steam, molten salt or industrial pressure**.
+
+The bench emulates the master shaft with a low-energy drive and measures spin-up, hysteresis, torsion, cloud-equivalent torque dips, loss of load, passive safe-state behavior and sequencing faults.
+
+## Repository layout
+
+```text
+dubaio/
+├── README.md
+├── requirements.txt
+├── docs/
+│   ├── specification.md
+│   ├── state_machine.md
+│   ├── v03_design.md
+│   ├── reference_comparison.md
+│   └── hil_bench.md
+├── sim/
+│   ├── configs.py
+│   ├── engine.py
+│   ├── run_day_cycle.py
+│   ├── v03_configs.py
+│   ├── v03_dispatch.py
+│   ├── torsional_bench.py
+│   ├── run_v03_scenarios.py
+│   ├── reference_baseline.py
+│   └── compare_architectures.py
+├── cad/
+│   └── procedural_gears.py
+├── tests/
+│   ├── test_physics.py
+│   ├── test_v03.py
+│   └── test_reference_baseline.py
+└── .github/workflows/
+    └── tests.yml
+```
+
+## Run v0.3 multi-day dispatch
+
+```bash
+python -m pip install -r requirements.txt
+python sim/run_v03_scenarios.py \
+  --config 1mw_daily_energy \
+  --mode dispatch \
+  --days 3
+```
+
+## Run v0.3 loss-of-grid torsional bench
+
+```bash
+python sim/run_v03_scenarios.py \
+  --config 10kw \
+  --mode torsion \
+  --dt 0.01
+```
+
+## Compare BMSC against the reference path
+
+```bash
+python sim/compare_architectures.py --config 1mw_peak
+```
+
+## Run physics invariants
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Tests now cover thermal-ledger closure, exact DNI sunrise/sunset boundaries, zero grid-loss dispatch, rated-power bounds, exact simulation duration, fixed ratio consistency, progressive load removal, backlash deadband behavior and the explicit BMSC/reference efficiency comparison.
+
+## Safety / engineering scope
+
+Everything here is analytical or conceptual.
+
+No gear geometry, pressure boundary, high-speed flywheel, receiver, clutch, shaft, bearing, brake, thermal-storage vessel or material selection in this repository is manufacturing-ready. Real hardware requires standards-based design, fatigue/overspeed containment, thermal analysis, controls validation and independent engineering review.
+
+## Next gate — v0.4
+
+1. temperature-dependent receiver radiation/convection losses;
+2. explicit clutch slip-energy and thermal-capacity model;
+3. shaft modal-frequency / resonance sweep;
+4. periodic multi-day SOC solver instead of fixed initial storage;
+5. parasitic electrical loads and cooling/pumping consumption;
+6. site-DNI input from weather data;
+7. quantified reliability/maintenance model for BMSC vs reference;
+8. machine-readable HIL acceptance thresholds and CSV validation report.
+
+---
+
+# BLACKMAMBA SOLAR CLOCK
+### **Slow as a mountain. Fast as lightning. Accounted to the joule.**
