@@ -1,13 +1,17 @@
 """BMSC Physics v0.2 simulation core.
 
-The model is intentionally conservative about what it claims:
+Model rules:
 - solar input creates available power;
 - storage integrates energy;
-- shaft torque is derived from available shaft power;
+- torque is derived from available shaft power;
 - rotational speed evolves from I*domega/dt = sum(torque);
-- cams request stages, while physical gates authorize engagement.
+- the full gear train remains kinematically meshed;
+- mechanical PLC stages admit LOAD rather than instantaneously creating new
+  gear ratios and reflected inertias;
+- a simple governor/rate envelope prevents the day-scale solver from treating
+  sub-second drivetrain transients as instantaneous.
 
-It is a concept-validation model, not a component design tool.
+This is a concept-validation model, not a component design tool.
 """
 
 from __future__ import annotations
@@ -34,7 +38,6 @@ class BMSCPhysicsEngine:
         return omega * 60.0 / (2.0 * math.pi)
 
     def cam_angle(self, hour_of_day: float) -> float:
-        """One mechanical clock revolution per 24-hour conceptual cycle."""
         return (hour_of_day % 24.0) * 15.0
 
     def requested_stage(self, hour_of_day: float) -> int:
@@ -46,65 +49,73 @@ class BMSCPhysicsEngine:
         return requested
 
     def stage_ratio(self, stage: int) -> float:
+        """Cumulative ratio through the first `stage` physical gear stages."""
         if stage <= 0:
             return 1.0
         return float(np.prod(self.cfg["stage_ratios"][:stage]))
+
+    def full_ratio(self) -> float:
+        return self.stage_ratio(len(self.cfg["stage_ratios"]))
 
     def drivetrain_efficiency(self, stage: int) -> float:
         if stage <= 0:
             return 1.0
         return float(self.cfg["eta_stage"] ** stage)
 
-    def reflected_inertia(self, stage: int) -> float:
-        """Reflect rotating downstream inertia to the master shaft.
+    def full_drivetrain_efficiency(self) -> float:
+        return self.drivetrain_efficiency(len(self.cfg["stage_ratios"]))
 
-        For a speed multiplier R = omega_out / omega_in, downstream inertia
-        reflected to the input is I_out * R^2.
-        """
+    def reflected_inertia_full_train(self) -> float:
+        """Reflect the continuously meshed drivetrain to the master shaft."""
         inertia = float(self.cfg["I_master"])
-        if stage <= 0:
-            return inertia
-
         cumulative = 1.0
         intermediate = self.cfg.get("I_intermediate", [])
-        for index in range(stage):
-            cumulative *= self.cfg["stage_ratios"][index]
+
+        for index, ratio in enumerate(self.cfg["stage_ratios"]):
+            cumulative *= ratio
             if index < len(intermediate):
                 inertia += float(intermediate[index]) * cumulative**2
 
-        final_ratio = self.stage_ratio(stage)
         inertia += (
             float(self.cfg["I_flywheel"]) + float(self.cfg["I_gen"])
-        ) * final_ratio**2
+        ) * cumulative**2
         return inertia
 
     def _update_stage(self, requested: int, has_energy: bool) -> None:
+        """Update load-admission stage with speed-gated upshift and safe unload."""
         rpm_master = self.rad_s_to_rpm(self.omega_master)
 
-        if self.current_stage == 0:
-            if requested >= 1 and has_energy:
-                engage = self.cfg["engage_rpm"].get(1, 0.0)
-                if rpm_master >= engage:
-                    self.current_stage = 1
+        # When the cam withdraws a request, unload progressively. Do not force
+        # the rotating train to remain electrically loaded until it slows.
+        if requested < self.current_stage:
+            self.current_stage = max(requested, self.current_stage - 1)
             return
 
-        # Progressive upshift: one stage per simulation step.
-        if requested > self.current_stage and has_energy:
+        if not has_energy:
+            if self.current_stage > 0:
+                disengage = self.cfg["disengage_rpm"].get(self.current_stage, 0.0)
+                if rpm_master <= disengage:
+                    self.current_stage -= 1
+            return
+
+        if requested > self.current_stage:
             next_stage = self.current_stage + 1
             engage = self.cfg["engage_rpm"].get(next_stage, math.inf)
             if rpm_master >= engage:
                 self.current_stage = next_stage
-            return
 
-        # Progressive downshift with true speed hysteresis.
-        if requested < self.current_stage or not has_energy:
-            disengage = self.cfg["disengage_rpm"].get(self.current_stage, 0.0)
-            if rpm_master <= disengage or not has_energy:
-                self.current_stage = max(0, self.current_stage - 1)
+    def _governor_factor(self, rpm_master: float) -> float:
+        nominal = self.cfg["master_rpm_nominal"]
+        band = max(self.cfg.get("governor_band_rpm", 0.1), 1e-9)
+        if rpm_master <= nominal:
+            return 1.0
+        return float(np.clip(1.0 - (rpm_master - nominal) / band, 0.0, 1.0))
 
     def step(self, dni: float, dt_sec: float, hour_of_day: float) -> Dict[str, float]:
         dt_sec = float(dt_sec)
         dni = max(0.0, float(dni))
+        omega_old = self.omega_master
+        rpm_master_old = self.rad_s_to_rpm(omega_old)
 
         # 1) Solar -> receiver power.
         p_opt = dni * self.cfg["aperture_area"] * self.cfg["eta_opt"]
@@ -117,96 +128,122 @@ class BMSCPhysicsEngine:
             ),
         )
 
-        # 2) Mechanical clock requests a stage; physical state may veto it.
-        requested = self.requested_stage(hour_of_day)
-
-        # First-order thermal-storage loss model.
+        # 2) Passive storage loss for this interval.
         storage_loss_fraction_per_hour = self.cfg.get(
             "storage_loss_fraction_per_hour", 0.0
         )
         q_store_loss = (
             self.E_thermal * storage_loss_fraction_per_hour / 3600.0
         )
+        E_after_passive_loss = max(0.0, self.E_thermal - q_store_loss * dt_sec)
 
-        # The prime mover can receive thermal power while the downstream train
-        # is still disengaged, allowing the master shaft to spin up.
-        wants_motion = requested > 0
-        p_th_request = self.cfg["p_th_cycle_max"] if wants_motion else 0.0
-
-        # Power available during this integration interval = current receiver
-        # power plus energy that can be withdrawn from storage during dt.
-        p_th_available = min(
-            p_th_request,
-            p_rec + max(0.0, self.E_thermal) / max(dt_sec, 1e-9),
-        )
-
-        dE = (p_rec - p_th_available - q_store_loss) * dt_sec
-        self.E_thermal = float(
-            np.clip(
-                self.E_thermal + dE,
-                0.0,
-                self.cfg["E_th_capacity"],
-            )
-        )
-
-        p_shaft_available = p_th_available * self.cfg["eta_thermal_cycle"]
+        # 3) Cam requests a load stage; physics authorizes it.
+        requested = self.requested_stage(hour_of_day)
+        thermal_energy_available = E_after_passive_loss + p_rec * dt_sec
         has_energy = (
-            self.E_thermal >= self.cfg["E_th_min_reserve"]
+            thermal_energy_available >= self.cfg["E_th_min_reserve"]
             or p_rec >= 0.30 * self.cfg["p_th_cycle_max"]
         )
-
         self._update_stage(requested=requested, has_energy=has_energy)
 
-        # 3) Drive torque is derived from available shaft power.
-        if p_shaft_available > 0.0 and wants_motion:
+        # 4) Thermal -> shaft power envelope. The prime mover is driven only
+        # while the cam requests motion. Excess receiver power remains in the
+        # thermal buffer (subject to capacity clipping below).
+        wants_drive = requested > 0
+        if wants_drive:
+            p_th_cap = min(
+                self.cfg["p_th_cycle_max"],
+                thermal_energy_available / max(dt_sec, 1e-9),
+            )
+        else:
+            p_th_cap = 0.0
+
+        p_shaft_cap = p_th_cap * self.cfg["eta_thermal_cycle"]
+
+        if p_shaft_cap > 0.0:
             tau_drive = min(
                 self.cfg["tau_max"],
-                p_shaft_available
-                / max(self.omega_master, self.cfg.get("omega_min", 0.01)),
+                p_shaft_cap / max(omega_old, self.cfg.get("omega_min", 0.01)),
             )
+            tau_drive *= self._governor_factor(rpm_master_old)
         else:
             tau_drive = 0.0
 
-        # Actual mechanical power injected at the current shaft speed.
-        p_drive_actual = tau_drive * self.omega_master
+        # 5) Full drivetrain remains meshed. PLC stages only load admission.
+        ratio = self.full_ratio()
+        eta_drive = self.full_drivetrain_efficiency()
+        i_eq = self.reflected_inertia_full_train()
 
-        # 4) Drivetrain + generator load.
-        stage = self.current_stage
-        ratio = self.stage_ratio(stage)
-        eta_drive = self.drivetrain_efficiency(stage)
-        i_eq = self.reflected_inertia(stage)
+        omega_gen_old = omega_old * ratio
+        rpm_gen_old = self.rad_s_to_rpm(omega_gen_old)
 
-        if stage > 0:
-            omega_gen = self.omega_master * ratio
-            rpm_gen = self.rad_s_to_rpm(omega_gen)
-        else:
-            omega_gen = 0.0
-            rpm_gen = 0.0
-
-        p_electric = 0.0
-        tau_gen = 0.0
-        tau_load_eq = 0.0
-
-        if stage > 0 and rpm_gen >= self.cfg["gen_cutin_rpm"]:
-            # Generator load cannot demand more mechanical power than the
-            # drivetrain can receive from the prime mover in this simple model.
-            p_mech_gen_cap = p_shaft_available * eta_drive
-            p_electric = min(
-                self.cfg["p_electric_rated"],
-                p_mech_gen_cap * self.cfg["eta_gen"],
-            )
-            p_mech_at_gen = p_electric / max(self.cfg["eta_gen"], 1e-9)
-            tau_gen = p_mech_at_gen / max(omega_gen, 1e-9)
-            tau_load_eq = tau_gen * ratio / max(eta_drive, 1e-9)
-
-        tau_friction = self.cfg["b_friction"] * self.omega_master
-
-        # 5) I*domega/dt = sum(torque), integrated with explicit Euler.
-        domega_dt = (tau_drive - tau_load_eq - tau_friction) / max(i_eq, 1e-9)
-        self.omega_master = max(
-            0.0,
-            self.omega_master + domega_dt * dt_sec,
+        load_fraction = self.cfg.get("stage_load_fraction", {}).get(
+            self.current_stage, 0.0
         )
+        cutin = self.cfg["gen_cutin_rpm"]
+        nominal_gen = self.cfg["gen_nominal_rpm"]
+        speed_fraction = float(
+            np.clip(
+                (rpm_gen_old - cutin) / max(nominal_gen - cutin, 1e-9),
+                0.0,
+                1.0,
+            )
+        )
+
+        p_electric_demand = (
+            self.cfg["p_electric_rated"] * load_fraction * speed_fraction
+        )
+
+        if p_electric_demand > 0.0 and omega_gen_old > 0.0:
+            p_mech_gen = p_electric_demand / max(self.cfg["eta_gen"], 1e-9)
+            tau_gen = p_mech_gen / omega_gen_old
+            tau_load_eq = tau_gen * ratio / max(eta_drive, 1e-9)
+        else:
+            tau_gen = 0.0
+            tau_load_eq = 0.0
+
+        tau_friction = self.cfg["b_friction"] * omega_old
+
+        # 6) Rotational dynamics.
+        domega_dt_raw = (
+            tau_drive - tau_load_eq - tau_friction
+        ) / max(i_eq, 1e-9)
+
+        max_accel = self.rpm_to_rad_s(
+            self.cfg.get("max_master_accel_rpm_s", math.inf)
+        )
+        max_decel = self.rpm_to_rad_s(
+            self.cfg.get("max_master_decel_rpm_s", math.inf)
+        )
+        domega_dt = float(np.clip(domega_dt_raw, -max_decel, max_accel))
+
+        omega_new = max(0.0, omega_old + domega_dt * dt_sec)
+        omega_avg = 0.5 * (omega_old + omega_new)
+        omega_gen_avg = omega_avg * ratio
+
+        # Mechanical power actually admitted by the governor during this step.
+        p_drive_actual = min(p_shaft_cap, tau_drive * max(omega_avg, 0.0))
+        thermal_used = (
+            p_drive_actual / max(self.cfg["eta_thermal_cycle"], 1e-9)
+        )
+
+        # Electrical power follows actual average generator speed and cannot
+        # exceed the requested load for this state.
+        p_electric_actual = min(
+            p_electric_demand,
+            tau_gen * max(omega_gen_avg, 0.0) * self.cfg["eta_gen"],
+        )
+
+        # 7) Close thermal energy balance after actual prime-mover admission.
+        E_new = E_after_passive_loss + p_rec * dt_sec - thermal_used * dt_sec
+        self.E_thermal = float(
+            np.clip(E_new, 0.0, self.cfg["E_th_capacity"])
+        )
+        self.omega_master = omega_new
+
+        rpm_master = self.rad_s_to_rpm(omega_new)
+        rpm_gen = self.rad_s_to_rpm(omega_new * ratio)
+        E_rot = 0.5 * i_eq * omega_new**2
 
         return {
             "hour": float(hour_of_day),
@@ -214,18 +251,22 @@ class BMSCPhysicsEngine:
             "cam_angle_deg": self.cam_angle(hour_of_day),
             "requested_stage": float(requested),
             "stage": float(self.current_stage),
+            "load_fraction": float(load_fraction),
             "p_opt_kw": p_opt / 1e3,
             "p_rec_kw": p_rec / 1e3,
-            "p_th_cycle_kw": p_th_available / 1e3,
-            "p_shaft_available_kw": p_shaft_available / 1e3,
+            "p_th_cycle_kw": thermal_used / 1e3,
+            "p_shaft_available_kw": p_shaft_cap / 1e3,
             "p_drive_actual_kw": p_drive_actual / 1e3,
             "E_th_mwh": self.E_thermal / 3.6e9,
-            "rpm_master": self.rad_s_to_rpm(self.omega_master),
+            "E_rot_kwh": E_rot / 3.6e6,
+            "rpm_master": rpm_master,
             "rpm_gen": rpm_gen,
             "tau_drive_knm": tau_drive / 1e3,
             "tau_load_eq_knm": tau_load_eq / 1e3,
-            "p_electric_kw": p_electric / 1e3,
+            "p_electric_kw": p_electric_actual / 1e3,
             "I_eq_kgm2": i_eq,
+            "domega_dt_raw": domega_dt_raw,
+            "domega_dt_used": domega_dt,
         }
 
 
@@ -236,7 +277,7 @@ def idealized_dni(hour: float, dni_max: float) -> float:
     return 0.0
 
 
-def run_day_simulation(config: Dict[str, Any], dt_sec: float = 10.0):
+def run_day_simulation(config: Dict[str, Any], dt_sec: float = 1.0):
     engine = BMSCPhysicsEngine(config)
     steps = int(24.0 * 3600.0 / dt_sec)
     records = []
