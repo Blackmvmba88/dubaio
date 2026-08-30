@@ -140,7 +140,7 @@ def run_loss_of_grid_demo(config: Dict[str, float], duration_s: float = 30.0, dt
         / max(nominal_omega, 1e-9)
     )
 
-    for i in range(steps + 1):
+    for i in range(steps):
         t = i * dt_sec
         grid_ok = not (10.0 <= t < 20.0)
         # During grid loss, a simple governor closes prime-mover admission rapidly.
