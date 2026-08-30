@@ -9,7 +9,7 @@ if str(SIM) not in sys.path:
     sys.path.insert(0, str(SIM))
 
 from configs import CONFIG_1MW_PEAK, CONFIG_1MW_DAILY_ENERGY_IDEAL
-from engine import BMSCPhysicsEngine, idealized_dni
+from engine import BMSCPhysicsEngine, idealized_dni, run_day_simulation
 
 
 class TestBMSCPhysics(unittest.TestCase):
@@ -90,6 +90,12 @@ class TestBMSCPhysics(unittest.TestCase):
         eta_chain = engine.drivetrain_efficiency(stage) * cfg["eta_gen"]
         upper_bound_kw = out["p_shaft_available_kw"] * eta_chain + 1e-9
         self.assertLessEqual(out["p_electric_kw"], upper_bound_kw)
+
+    def test_day_simulation_does_not_integrate_past_24_hours(self):
+        records = run_day_simulation(CONFIG_1MW_PEAK, dt_sec=3600.0)
+        self.assertEqual(len(records), 24)
+        self.assertEqual(records[0]["hour"], 0.0)
+        self.assertEqual(records[-1]["hour"], 23.0)
 
 
 if __name__ == "__main__":
