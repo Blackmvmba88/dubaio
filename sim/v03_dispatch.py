@@ -44,7 +44,7 @@ def clamp(value: float, lo: float, hi: float) -> float:
 def idealized_dni(hour_of_day: float, dni_max: float) -> float:
     """12 h sine-wave DNI profile, used only for repeatable baseline studies."""
     h = hour_of_day % 24.0
-    if 6.0 <= h <= 18.0:
+    if 6.0 < h < 18.0:
         return dni_max * math.sin(math.pi * (h - 6.0) / 12.0)
     return 0.0
 
