@@ -272,7 +272,7 @@ class BMSCPhysicsEngine:
 
 def idealized_dni(hour: float, dni_max: float) -> float:
     """Simple 12-hour sine profile used only for baseline comparisons."""
-    if 6.0 <= hour <= 18.0:
+    if 6.0 < hour < 18.0:
         return float(dni_max * math.sin(math.pi * (hour - 6.0) / 12.0))
     return 0.0
 
