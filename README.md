@@ -169,11 +169,7 @@ python sim/compare_architectures.py --config 1mw_peak
 python -m unittest discover -s tests -v
 ```
 
-Tests now cover thermal-ledger closure, zero grid-loss dispatch, rated-power bounds, fixed ratio consistency, progressive load removal, backlash deadband behavior and the explicit BMSC/reference efficiency comparison.
-
-## Current CI note
-
-The GitHub Actions workflow is valid YAML and is being triggered, but current GitHub runs terminate before any job step is reported (`runner_id=0`, empty steps). Until GitHub provides an executable runner, CI status must **not** be interpreted as a physics-test result.
+Tests now cover thermal-ledger closure, zero grid-loss dispatch, rated-power bounds, exact simulation duration, fixed ratio consistency, progressive load removal, backlash deadband behavior and the explicit BMSC/reference efficiency comparison.
 
 ## Safety / engineering scope
 
