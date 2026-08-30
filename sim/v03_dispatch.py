@@ -177,7 +177,7 @@ def run_multi_day(
     records: List[DispatchResult] = []
     steps = int(days * 24.0 * 3600.0 / dt_sec)
 
-    for i in range(steps + 1):
+    for i in range(steps):
         hour = i * dt_sec / 3600.0
         hday = hour % 24.0
         dni = idealized_dni(hday, float(config["dni_max"]))
