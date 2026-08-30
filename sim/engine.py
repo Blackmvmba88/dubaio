@@ -282,7 +282,7 @@ def run_day_simulation(config: Dict[str, Any], dt_sec: float = 1.0):
     steps = int(24.0 * 3600.0 / dt_sec)
     records = []
 
-    for i in range(steps + 1):
+    for i in range(steps):
         hour = i * dt_sec / 3600.0
         dni = idealized_dni(hour, config["dni_max"])
         records.append(engine.step(dni=dni, dt_sec=dt_sec, hour_of_day=hour))
