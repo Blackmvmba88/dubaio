@@ -10,7 +10,7 @@ if str(SIM) not in sys.path:
 
 from configs import CONFIG_10KW_PEAK, CONFIG_1MW_DAILY_ENERGY_IDEAL
 from v03_dispatch import MultiDayDispatchModel, idealized_dni, run_multi_day
-from torsional_bench import TorsionalBench
+from torsional_bench import TorsionalBench, run_loss_of_grid_demo
 from v03_configs import with_v03_dynamics
 
 
@@ -40,6 +40,12 @@ class TestV03Dispatch(unittest.TestCase):
         # The daily-energy aperture should be substantially larger than the
         # nominal peak aperture by construction.
         self.assertGreater(cfg["aperture_area"], 3.0 * 5_688.3)
+
+    def test_multi_day_step_count_matches_requested_duration(self):
+        records = run_multi_day(dict(CONFIG_10KW_PEAK), days=1, dt_sec=3600.0)
+        self.assertEqual(len(records), 24)
+        self.assertEqual(records[0].hour, 0.0)
+        self.assertEqual(records[-1].hour, 23.0)
 
 
 class TestV03TorsionalBench(unittest.TestCase):
@@ -71,6 +77,12 @@ class TestV03TorsionalBench(unittest.TestCase):
         bench.state.theta_master = 0.5 * cfg["backlash_rad"]
         bench.state.theta_load_eq = 0.0
         self.assertAlmostEqual(bench.spring_torque(), 0.0, places=9)
+
+    def test_loss_of_grid_demo_does_not_integrate_past_duration(self):
+        cfg = with_v03_dynamics("10kw")
+        records = run_loss_of_grid_demo(cfg, duration_s=1.0, dt_sec=0.1)
+        self.assertEqual(len(records), 10)
+        self.assertAlmostEqual(records[-1]["time_s"], 0.9, places=9)
 
 
 if __name__ == "__main__":
