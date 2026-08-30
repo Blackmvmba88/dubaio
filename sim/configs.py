@@ -1,6 +1,8 @@
 """Parameter sets for BMSC Physics v0.2.
 
 All values are conceptual and intended for simulation only.
+The peak configurations are sized consistently with the efficiency chain in
+this file, rather than mixing receiver power and aperture power definitions.
 """
 
 BASE = {
@@ -30,11 +32,15 @@ def _scaled(**overrides):
     return cfg
 
 
+# With the baseline chain:
+# eta_receiver_effective = 0.88 - 0.05 = 0.83
+# eta_receiver_to_electric = 0.35 * 0.96^3 * 0.96 ~= 0.29727
+# These aperture areas therefore close the NOMINAL PEAK power equation.
 CONFIG_10KW_PEAK = _scaled(
     name="10 kW peak validation",
-    aperture_area=45.0,
-    p_th_cycle_max=31.25e3,
-    E_th_capacity=250e3 * 3600.0,
+    aperture_area=56.9,
+    p_th_cycle_max=33.64e3,
+    E_th_capacity=269.1e3 * 3600.0,   # ~8 h at thermal-cycle rated input
     E_th_initial=50e3 * 3600.0,
     E_th_min_reserve=10e3 * 3600.0,
     tau_max=70e3,
@@ -46,9 +52,9 @@ CONFIG_10KW_PEAK = _scaled(
 
 CONFIG_100KW_PEAK = _scaled(
     name="100 kW peak pilot",
-    aperture_area=440.0,
-    p_th_cycle_max=312.5e3,
-    E_th_capacity=2.5e6 * 3600.0,
+    aperture_area=568.9,
+    p_th_cycle_max=336.4e3,
+    E_th_capacity=2.691e6 * 3600.0,
     E_th_initial=0.5e6 * 3600.0,
     E_th_min_reserve=0.1e6 * 3600.0,
     tau_max=650e3,
@@ -60,9 +66,9 @@ CONFIG_100KW_PEAK = _scaled(
 
 CONFIG_1MW_PEAK = _scaled(
     name="1 MW peak industrial concept",
-    aperture_area=4_386.0,
-    p_th_cycle_max=3.125e6,
-    E_th_capacity=25e6 * 3600.0,
+    aperture_area=5_688.3,
+    p_th_cycle_max=3.36393e6,
+    E_th_capacity=26.911e6 * 3600.0,
     E_th_initial=5e6 * 3600.0,
     E_th_min_reserve=1e6 * 3600.0,
     tau_max=6.5e6,
@@ -72,13 +78,14 @@ CONFIG_1MW_PEAK = _scaled(
     b_friction=5_000.0,
 )
 
-# Idealized daily-energy-closing case under the repository's simple
-# 06:00–18:00 sinusoidal DNI profile. This is NOT a real site design.
-CONFIG_1MW_CONTINUOUS_IDEAL = _scaled(
-    name="1 MW continuous idealized energy-balance case",
-    aperture_area=16_600.0,
-    p_th_cycle_max=3.125e6,
-    E_th_capacity=40e6 * 3600.0,
+# Idealized APERTURE-ENERGY study under the repository's simple 06:00–18:00
+# sinusoidal DNI profile. It closes ~24 MWh_e/day before storage/parasitic
+# losses. It does NOT by itself implement a 24-hour dispatch schedule.
+CONFIG_1MW_DAILY_ENERGY_IDEAL = _scaled(
+    name="1 MW average daily-energy aperture study",
+    aperture_area=17_900.0,
+    p_th_cycle_max=3.36393e6,
+    E_th_capacity=42e6 * 3600.0,
     E_th_initial=10e6 * 3600.0,
     E_th_min_reserve=2e6 * 3600.0,
     tau_max=6.5e6,
@@ -92,5 +99,5 @@ CONFIGS = {
     "10kw": CONFIG_10KW_PEAK,
     "100kw": CONFIG_100KW_PEAK,
     "1mw_peak": CONFIG_1MW_PEAK,
-    "1mw_continuous_ideal": CONFIG_1MW_CONTINUOUS_IDEAL,
+    "1mw_daily_energy": CONFIG_1MW_DAILY_ENERGY_IDEAL,
 }
