@@ -49,17 +49,21 @@ Receiver -> thermal storage
 
 - Power is derived from solar/thermal energy first; torque and RPM are no longer independently scaled with irradiance.
 - Master-shaft speed evolves from `I * domega/dt = sum(torque)`.
-- Stage engagement uses true hysteresis thresholds.
+- Stage engagement uses hysteresis thresholds.
 - The prime mover can spin up the master shaft before the downstream generator train is connected.
 - Peak-power sizing is separated from 24-hour energy sizing.
 - Overspeed philosophy favors unloading, bypass and controlled braking rather than an instantaneous rigid lock.
 - CAD scripts are explicitly visualization-only.
 
-## Important energy distinction
+## Reconciled 1 MW baseline
 
-The `4386 m^2` case is an **approximately 1 MW peak** aperture under the simplified design-point assumptions. It is not a 1 MW / 24 h field.
+Using the current v0.2 assumptions (`DNI=950 W/m²`, `eta_opt=0.75`, effective receiver factor `0.83`, thermal cycle `0.35`, three drivetrain stages at `0.96`, generator `0.96`):
 
-With the repository's toy 06:00–18:00 sinusoidal DNI profile and current optical/receiver assumptions, an aperture around `16,600 m^2` is required merely to close the idealized daily thermal-energy budget associated with a flat 1 MW electrical target. Real site sizing would require additional margin for weather, seasonal DNI, soiling, parasitic loads, storage losses, downtime and reserve.
+- **~5,688 m² aperture** closes the analytical **1 MW peak** equation.
+- Under the toy 06:00–18:00 sinusoidal DNI profile, that field represents about **7.64 MWh_e/day** before storage/parasitic corrections.
+- **~17,900 m² aperture** closes an idealized **24 MWh_e/day** energy budget with the same chain, before storage losses, parasitic loads, weather, soiling and reserve margins.
+
+The `1mw_daily_energy` configuration is therefore an **energy-budget study**, not a claim of a finished 1 MW / 24 h dispatch design.
 
 ## Repository layout
 
@@ -89,7 +93,7 @@ python -m pip install -r requirements.txt
 python sim/run_day_cycle.py --config 10kw
 python sim/run_day_cycle.py --config 100kw
 python sim/run_day_cycle.py --config 1mw_peak
-python sim/run_day_cycle.py --config 1mw_continuous_ideal
+python sim/run_day_cycle.py --config 1mw_daily_energy
 ```
 
 Export a time-series CSV:
@@ -115,11 +119,13 @@ No geometry, material selection, pressure vessel, high-speed flywheel, thermal r
 Before industrial drivetrain sizing:
 
 1. model clutch slip and synchronization energy;
-2. add torsional compliance/backlash;
-3. replace fractional receiver losses with a temperature-dependent thermal model;
-4. run multi-day storage/dispatch simulations;
-5. compare the staged mechanical architecture against a conventional variable-speed generator + power-electronics baseline;
-6. define a low-energy hardware-in-the-loop bench test that emulates the master shaft without high-temperature or high-pressure working fluids.
+2. account explicitly for prime-mover power rejected while torque-limited;
+3. add rotational-energy accounting to generator dispatch;
+4. add torsional compliance/backlash;
+5. replace fractional receiver losses with a temperature-dependent thermal model;
+6. run multi-day storage/dispatch simulations to periodic state-of-charge closure;
+7. compare the staged mechanical architecture against a conventional variable-speed generator + power-electronics baseline;
+8. define a low-energy hardware-in-the-loop bench test that emulates the master shaft without high-temperature or high-pressure working fluids.
 
 ---
 
