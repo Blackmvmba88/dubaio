@@ -50,9 +50,17 @@ def main() -> None:
         default="10kw",
         help="Parameter set to simulate",
     )
-    parser.add_argument("--dt", type=float, default=10.0, help="Integration step in seconds")
+    parser.add_argument(
+        "--dt",
+        type=float,
+        default=1.0,
+        help="Integration step in seconds (v0.2 baseline: 1 s)",
+    )
     parser.add_argument("--csv", type=Path, default=None, help="Optional output CSV path")
     args = parser.parse_args()
+
+    if args.dt <= 0:
+        parser.error("--dt must be greater than zero")
 
     config = CONFIGS[args.config]
     records = run_day_simulation(config, dt_sec=args.dt)
