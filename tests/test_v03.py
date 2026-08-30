@@ -15,6 +15,10 @@ from v03_configs import with_v03_dynamics
 
 
 class TestV03Dispatch(unittest.TestCase):
+    def test_dni_boundaries_are_exact_zero(self):
+        self.assertEqual(idealized_dni(6.0, 950.0), 0.0)
+        self.assertEqual(idealized_dni(18.0, 950.0), 0.0)
+
     def test_thermal_ledger_closes_each_step(self):
         cfg = dict(CONFIG_10KW_PEAK)
         model = MultiDayDispatchModel(cfg)
